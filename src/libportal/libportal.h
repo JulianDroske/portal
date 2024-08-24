@@ -1,31 +1,52 @@
+/*
+  MIT License
+
+  Copyright (c) 2024 JulianDroske
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+*/
+
+/*
+  Knowledgements about screen capturing
+  Windows GDI
+    https://stackoverflow.com/questions/3291167
+    https://stackoverflow.com/questions/24720451
+    https://stackoverflow.com/questions/35762636
+    https://learn.microsoft.com/en-us/windows/win32/gdi/capturing-an-image
+  Linux X11
+    https://stackoverflow.com/questions/13479975
+  MacOS
+    https://stackoverflow.com/questions/1537587
+*/
+
 #ifndef __LIBPORTAL_H__
 #define __LIBPORTAL_H__
-
-// #if !defined(LIBPORTAL_PLATFORM_HAS_X11)
-// # if defined(__APPLE__)
-// #  define LIBPORTAL_PLATFORM_HAS_APPLE
-// # elseif defined(_WIN32)
-// #  define LIBPORTAL_PLATFORM_HAS_GDI
-// # else
-// #  define LIBPORTAL_PLATFORM_HAS_X11
-// # endif
-// #endif
-
-#if !defined(LIBPORTAL_PLATFORM_HAS_X11) && !defined(LIBPORTAL_PLATFORM_HAS_FBDEV)
-# error "enable at least a available platform with LIBPORTAL_PLATFORM_HAS_* to compile libportal"
-#endif
 
 #include "stdio.h"
 #include "stdint.h"
 #include "stdlib.h"
 #include "string.h"
 
-
-// typedef uint32_t libportal_platform_id_t;
-
 typedef enum {
   LIBPORTAL_PLATFORM_ID_X11 = 1,
   LIBPORTAL_PLATFORM_ID_FBDEV,
+  LIBPORTAL_PLATFORM_ID_GDI,
 } libportal_platform_id_t;
 
 typedef enum {
@@ -42,11 +63,6 @@ typedef enum {
 } libportal_error_t;
 
 typedef uint8_t libportal_byte_t;
-
-// typedef struct {
-//   const char *name;
-//   const char *value;
-// } libportal_option_t;
 
 typedef struct {
   libportal_byte_t *data;
@@ -90,8 +106,11 @@ void libportal_destroyimage(libportal_image_t *image);
 
 #ifdef LIBPORTAL_IMPL
 
+#if !defined(LIBPORTAL_PLATFORM_HAS_X11) && !defined(LIBPORTAL_PLATFORM_HAS_FBDEV) &&!defined(LIBPORTAL_PLATFORM_HAS_GDI)
+# error "enable at least one available platform with LIBPORTAL_PLATFORM_HAS_* macros to compile libportal"
+#endif
+
 #ifdef LIBPORTAL_PLATFORM_HAS_X11
-/* ref: https://stackoverflow.com/questions/13479975/fastest-method-for-screen-capturing-on-linux */
 # include "X11/Xlib.h"
 # include "X11/Xutil.h"
 # include "X11/Xmd.h"
@@ -122,6 +141,14 @@ typedef struct {
 } libportal_userdata_fbdev_t;
 #endif /* LIBPORTAL_PLATFORM_HAS_FBDEV */
 
+#ifdef LIBPORTAL_PLATFORM_HAS_GDI
+# include "windows.h"
+
+typedef struct {
+  HDC screen_hdc;
+  HDC memory_hdc;
+} libportal_userdata_gdi_t;
+#endif /* LIBPORTAL_PLATFORM_HAS_GDI */
 
 /* libportal */
 
@@ -132,6 +159,9 @@ const libportal_platform_pair_t libportal_available_platform_pairs[] = {
 #ifdef LIBPORTAL_PLATFORM_HAS_FBDEV
   { LIBPORTAL_PLATFORM_ID_FBDEV, "fbdev" },
 #endif
+#ifdef LIBPORTAL_PLATFORM_HAS_GDI
+  { LIBPORTAL_PLATFORM_ID_GDI, "gdi" },
+#endif
   { 0, NULL }
 };
 
@@ -139,8 +169,6 @@ const libportal_platform_pair_t libportal_available_platform_pairs[] = {
 libportal_error_t libportal_init(libportal_t *portal, libportal_platform_id_t platform_id, libportal_platform_options_t opts) {
 
   portal->platform_id = platform_id;
-
-  // TODO convert opts to map and parse
 
   switch (platform_id) {
 
@@ -194,7 +222,6 @@ libportal_error_t libportal_init(libportal_t *portal, libportal_platform_id_t pl
       fd = open(dev_path, O_RDONLY | O_NONBLOCK);
       if (fd < 0) { error = LPE_NO_SUCH_FILE; goto fbdev_error_l; }
 
-      // struct fb_fix_screeninfo finfo;
       struct fb_var_screeninfo vinfo;
 
       if (ioctl(fd, FBIOGET_VSCREENINFO, &vinfo) < 0) { error = LPE_IOCTL_FAILURE; goto fbdev_error_l; }
@@ -221,8 +248,28 @@ libportal_error_t libportal_init(libportal_t *portal, libportal_platform_id_t pl
       fbdev_error_l: {
         if (fd) close(fd);
         if (fbdev) free(fbdev);
-        return 1;
+        return error;
       }
+    } break;
+#endif
+
+#ifdef LIBPORTAL_PLATFORM_HAS_GDI
+    case LIBPORTAL_PLATFORM_ID_GDI: {
+      libportal_userdata_gdi_t *gdi = NULL;
+
+      gdi = (libportal_userdata_gdi_t *) malloc(sizeof(libportal_userdata_gdi_t));
+      if (!gdi) return 1;
+
+      HDC screen_hdc = GetDC(NULL);
+      HDC memory_hdc = CreateCompatibleDC(screen_hdc);
+
+      *gdi = (libportal_userdata_gdi_t) {
+        .screen_hdc = screen_hdc,
+        .memory_hdc = memory_hdc
+      };
+      portal->userdata = gdi;
+
+      return LP_OK;
     } break;
 #endif
 
@@ -252,6 +299,16 @@ void libportal_close(libportal_t *portal) {
       libportal_userdata_fbdev_t *fbdev = (libportal_userdata_fbdev_t *) portal->userdata;
       munmap(fbdev->memory, fbdev->map_len);
       close(fbdev->fd);
+      free(fbdev);
+    } break;
+#endif
+
+#ifdef LIBPORTAL_PLATFORM_HAS_GDI
+    case LIBPORTAL_PLATFORM_ID_GDI: {
+      libportal_userdata_gdi_t *gdi = (libportal_userdata_gdi_t *) portal->userdata;
+      DeleteDC(gdi->memory_hdc);
+      ReleaseDC(NULL, gdi->screen_hdc);
+      free(gdi);
     } break;
 #endif
 
@@ -323,6 +380,57 @@ libportal_image_t libportal_fetchimage(libportal_t *portal) {
         }
         image.data = data;
       }
+    } break;
+#endif
+
+#ifdef LIBPORTAL_PLATFORM_HAS_GDI
+    case LIBPORTAL_PLATFORM_ID_GDI: {
+      libportal_userdata_gdi_t *gdi = (libportal_userdata_gdi_t *) portal->userdata;
+
+      HDC screen_hdc = gdi->screen_hdc;
+      HDC memory_hdc = gdi->memory_hdc;
+
+      int width = GetDeviceCaps(screen_hdc, HORZRES);
+      int height = GetDeviceCaps(screen_hdc, VERTRES);
+      HBITMAP bitmap = CreateCompatibleBitmap(screen_hdc, width, height);
+      HBITMAP old_bitmap = SelectObject(memory_hdc, bitmap);
+      BitBlt(memory_hdc, 0, 0, width, height, screen_hdc, 0, 0, SRCCOPY | CAPTUREBLT);
+      bitmap = SelectObject(memory_hdc, old_bitmap);
+
+      BITMAPINFOHEADER bmp_info_header = { sizeof(BITMAPINFOHEADER) };
+      bmp_info_header.biWidth = width;
+      bmp_info_header.biHeight = height;
+      bmp_info_header.biPlanes = 1;
+      bmp_info_header.biBitCount = 32;
+
+      DWORD image_len = ((width * bmp_info_header.biBitCount + 31) / 32) * 4 * height;
+      BYTE *image_bits = (BYTE *) malloc(image_len);
+      if (image_bits) {
+        if (GetDIBits(memory_hdc, bitmap, 0, height, image_bits, (BITMAPINFO *) &bmp_info_header, DIB_RGB_COLORS)) {
+          libportal_byte_t *data = (libportal_byte_t *) malloc(image_len);
+          if (data) {
+            image.w = width;
+            image.h = height;
+
+            for (int row = 0; row < height; ++row) {
+              for (int col = 0; col < width; ++col) {
+                int dsti = ((height - row - 1) * width + col) * 4;
+                int srci = (row * width + col) * 4;
+                libportal_byte_t *dst = data + dsti;
+                libportal_byte_t *src = image_bits + srci;
+                dst[0] = src[2];
+                dst[1] = src[1];
+                dst[2] = src[0];
+                dst[3] = src[3];
+              }
+            }
+            image.data = data;
+          }
+        }
+        free(image_bits);
+      }
+
+      DeleteObject(bitmap);
     } break;
 #endif
 

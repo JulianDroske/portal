@@ -72,6 +72,12 @@
       reader.readAsDataURL(blob);
     });
 
+    const blob2text = (blob) => new Promise((res) => {
+      const reader = new FileReader();
+      reader.onloadend = () => res(reader.result);
+      reader.readAsText(blob);
+    });
+
     (function() {
       const canvas = document.getElementById('content');
       const ctx = canvas.getContext('2d', { alpha: false });
@@ -100,13 +106,6 @@
         updateOverlay(ws? null: '<div class="animbox">Stream disconnected</div>');
       }
 
-      const requestImageUpdate = () => {
-        if (globalWs) {
-          const ws = globalWs;
-          ws.send('fetchimage:');
-        }
-      }
-
       const loopUpdater = () => {
         const imageDrawing = globalImage;
         if (imageDrawing) {
@@ -119,7 +118,6 @@
           // imageDrawing.close();
         }
         globalImage = null;
-        // requestImageUpdate();
         requestAnimationFrame(loopUpdater);
       };
       loopUpdater();
@@ -136,7 +134,7 @@
               ws.addEventListener('message', async ev => {
                 promiser.pushTask(() => new Promise(async (res) => {
                   const { data } = ev;
-                  const text = await data.slice(0, 64).text();
+                  const text = await blob2text(data.slice(0, 64));
 
                   const args = text.split(':').slice(0, 3);
                   const [ timestampText, widthText, heightText ] = args;
@@ -170,22 +168,6 @@
       };
 
       init();
-
-      // const loopRequest = () => {
-      //   if (globalWs) {
-      //     requestImageUpdate();
-      //     requestAnimationFrame(loopRequest);
-      //   } else {
-      //     setTimeout(loopRequest, 1000);
-      //   }
-      // };
-      // loopRequest();
-
-      setInterval(() => {
-        if (globalWs) {
-          requestImageUpdate();
-        }
-      }, 1000 / 30);
 
       warn.remove();
     })();

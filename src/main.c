@@ -1,13 +1,21 @@
 /* for testing only */
-#define LIBPORTAL_PLATFORM_HAS_X11
-#define LIBPORTAL_PLATFORM_HAS_FBDEV
+#define LIBPORTAL_PLATFORM_USE_X11
+#define LIBPORTAL_PLATFORM_USE_FBDEV
+
+#define WBY_STATIC
+#define WBY_USE_FIXED_TYPES
+#define WBY_USE_ASSERT
+#include "web.h"
+
+#include "jurt.h"
+
+#ifdef _WIN32
+# include "ws2tcpip.h"
+#endif
 
 #include "libportal/libportal.c"
 
-#define WBY_STATIC
 #define WBY_IMPLEMENTATION
-#define WBY_USE_FIXED_TYPES
-#define WBY_USE_ASSERT
 #include "web.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -21,13 +29,8 @@
 
 #include "res_indexhtml.h"
 
+
 #define MAIN_LOG_PREFIX "[portal-web] "
-
-// #define INCBIN_PREFIX g_
-// #define INCBIN_STYLE INCBIN_STYLE_SNAKE
-// #include "incbin.h"
-
-// INCBIN(index, "index.html");
 
 typedef int (_main_command_function_t)(struct wby_con *connection, libportal_t *portal);
 
@@ -36,37 +39,27 @@ typedef struct {
   _main_command_function_t *f;
 } _main_command_t;
 
-int _main_image_used = 0;
-char *_main_current_image_data = NULL;
-int _main_current_image_len = 0;
-int _main_current_image_width = 0;
-int _main_current_image_height = 0;
-// libportal_image_t _main_current_image;
+typedef struct {
+  int w;
+  int h;
+  int len;
+  void *data;
+} _main_jpeg_image_t;
 
-// void _main_fetchimage_writeimage(void *context, void *data, int size) {
-//   struct wby_con *connection = (struct wby_con *) context;
-//   wby_write(connection, data, size);
+// int _main_command_fetchimage(struct wby_con *connection, libportal_t *portal) {
+//   wby_frame_begin(connection, WBY_WSOP_BINARY_FRAME);
+
+//   _main_image_used = 1;
+//   wby_printf(connection, "%llu:%d:%d:", jl_getmillitimestamp(), _main_current_image_width, _main_current_image_height);
+//   wby_write(connection, _main_current_image_data, _main_current_image_len);
+//   wby_frame_end(connection);
+//   return 0;
 // }
 
-// TODO only serve one image for one connection
-int _main_command_fetchimage(struct wby_con *connection, libportal_t *portal) {
-  wby_frame_begin(connection, WBY_WSOP_BINARY_FRAME);
-
-  _main_image_used = 1;
-  wby_printf(connection, "%llu:%d:%d:", jl_getmillitimestamp(), _main_current_image_width, _main_current_image_height);
-  // libportal_image_t image = libportal_fetchimage(portal);
-  // stbi_write_jpg_to_func(_main_fetchimage_writeimage, connection, image.w, image.h, 4, image.data, 20);
-  // libportal_destroyimage(&image);
-  wby_write(connection, _main_current_image_data, _main_current_image_len);
-  wby_frame_end(connection);
-  return 0;
-}
-
 _main_command_t _main_commands[] = {
-  { "fetchimage:", _main_command_fetchimage },
-  // { NULL, NULL }
+  // { "fetchimage:", _main_command_fetchimage },
+  { NULL, NULL }
 };
-int _main_commands_count = 1;
 
 
 int _main_websever_dispatch(struct wby_con *connection, void *userdata) {
@@ -86,11 +79,6 @@ int _main_websever_dispatch(struct wby_con *connection, void *userdata) {
     return 0;
   }
 
-  // static const char html404[] = "<h1>404 not found<h1>";
-  // wby_response_begin(connection, 404, sizeof(html404), NULL, 0);
-  // wby_write(connection, html404, sizeof(html404));
-  // wby_response_end(connection);
-
   return 1;
 }
 
@@ -99,10 +87,7 @@ int _main_webserver_connect(struct wby_con *connection, void *userdata) {
   else return 1;
 }
 
-void _main_webserver_connected(struct wby_con *connection, void *userdata) {
-  // struct server_state *state = (struct server_state*) userdata;
-  // state->conn[state->conn_count++] = connection;
-}
+void _main_webserver_connected(struct wby_con *connection, void *userdata) { }
 
 int _main_webserver_frame(struct wby_con *connection, const struct wby_frame *frame, void *userdata) {
   libportal_t *portal = (libportal_t *) userdata;
@@ -114,8 +99,9 @@ int _main_webserver_frame(struct wby_con *connection, const struct wby_frame *fr
 
   _main_command_function_t *func = NULL;
 
-  for (int i = 0; i < _main_commands_count; ++i) {
-    _main_command_t *command = &_main_commands[i];
+  // for (int i = 0; i < _main_commands_count; ++i) {
+  //   _main_command_t *command = &_main_commands[i];
+  for (_main_command_t *command = _main_commands; command->name; ++command) {
     int name_len = strlen(command->name);
     if (frame_len >= name_len && !strncmp(frame_buf, command->name, name_len)) {
       return command->f(connection, portal);
@@ -125,17 +111,12 @@ int _main_webserver_frame(struct wby_con *connection, const struct wby_frame *fr
   return 0;
 }
 
-void _main_webserver_closed(struct wby_con *connection, void *userdata) {
-  
-}
+void _main_webserver_closed(struct wby_con *connection, void *userdata) { }
 
-// void test_log(const char* text) {
-//   printf("[debug] %s\n", text);
-// }
-
-void _main_current_image_writer(void *context, void *data, int size) {
-  memcpy(_main_current_image_data + _main_current_image_len, data, size);
-  _main_current_image_len += size;
+void _main_jpeg_image_writer(void *context, void *data, int size) {
+  _main_jpeg_image_t *image = (_main_jpeg_image_t *) context;
+  memcpy(image->data + image->len, data, size);
+  image->len += size;
 }
 
 int main(int argc, const char **argv) {
@@ -151,7 +132,7 @@ int main(int argc, const char **argv) {
   libportal_platform_options_t libportal_options = {};
 
 
-  /* construct options */
+  /* construct argparse options */
 
   jlda_ptr cmd_options_da = jlda_create(sizeof(struct argparse_option));
 
@@ -216,18 +197,16 @@ int main(int argc, const char **argv) {
     return 1;
   }
 
-  int main_error_code = 0;
-
-  _main_current_image_data = malloc(1024 * 1024 * 1024 /* 1MB */);
-  if (!_main_current_image_data) {
-    jl_err(MAIN_LOG_PREFIX "failed to prepare image memory");
-    return 1;
-  }
+  int main_libportal_error_code = 0;
+  int main_code = 0;
 
   libportal_t portal = {};
+  struct wby_server server = {};
+  void *memory = NULL;
+  unsigned char *image_data = NULL;
 
   jl_inf(MAIN_LOG_PREFIX "initializating libportal with platform '%s'", platform_name);
-  if (main_error_code = libportal_init(&portal, platform_id, libportal_options)) goto l_main_error;
+  if (main_libportal_error_code = libportal_init(&portal, platform_id, libportal_options)) goto l_main_end;
 
   /* start webby server */
 
@@ -244,64 +223,78 @@ int main(int argc, const char **argv) {
     .ws_frame = _main_webserver_frame,
     .ws_closed = _main_webserver_closed
   };
-  struct wby_server server = {};
   wby_size memory_size = 0;
 
   jl_inf(MAIN_LOG_PREFIX "starting server");
 
   /* start server */
   wby_init(&server, &webserver_config, &memory_size);
-  void *memory = calloc(memory_size, 1);
+  memory = calloc(memory_size, 1);
   wby_start(&server, memory);
 
   /* get actual binded port */
   struct sockaddr_in sockin = {};
   socklen_t sockaddrlen = sizeof(sockin);
   if (getsockname(server.socket, (struct sockaddr *) &sockin, &sockaddrlen) == -1) {
-    wby_stop(&server);
-    return 1;
+    main_code = 1;
+    jl_err("failed to get actual binded port");
+    goto l_main_end;
   }
   unsigned short port = ntohs(sockin.sin_port);
 
   jl_inf(MAIN_LOG_PREFIX "server started on port %u", port);
 
-  /* start server */
+  /* main process */
 
-  // _main_current_image = libportal_fetchimage(&portal);
-  _main_image_used = 1;
+  // TODO check result image out of range
+  image_data = malloc(1024 * 1024 * 1024 /* 1MB */);
+  if (!image_data) {
+    main_code = 1;
+    jl_err("failed to alloc data for storing result image");
+    goto l_main_end;
+  }
+
+  _main_jpeg_image_t result_jpeg_image = {
+    .w = 0,
+    .h = 0,
+    .len = 0,
+    .data = image_data,
+  };
 
   while (1) {
-    if (_main_image_used) {
+    if (server.con_count > 0) {
       libportal_image_t image = libportal_fetchimage(&portal);
-      _main_current_image_len = 0;
-      _main_current_image_width = image.w;
-      _main_current_image_height = image.h;
-      stbi_write_jpg_to_func(_main_current_image_writer, NULL, image.w, image.h, 4, image.data, 20);
+      result_jpeg_image.w = image.w;
+      result_jpeg_image.h = image.h;
+      result_jpeg_image.len = 0;
+      stbi_write_jpg_to_func(_main_jpeg_image_writer, &result_jpeg_image, image.w, image.h, 4, image.data, 20);
       libportal_destroyimage(&image);
-      _main_image_used = 0;
+    }
+
+    for(int i = 0; i < server.con_count; ++i) {
+      struct wby_connection *con = &server.con[i];
+      if (con->state & WBY_CON_STATE_WEBSOCKET) {
+        struct wby_con *connection = &con->public_data;
+
+        wby_frame_begin(connection, WBY_WSOP_BINARY_FRAME);
+        wby_printf(connection, "%llu:%d:%d:", jl_getmillitimestamp(), result_jpeg_image.w, result_jpeg_image.h);
+        wby_write(connection, result_jpeg_image.data, result_jpeg_image.len);
+        wby_frame_end(connection);
+      }
     }
 
     wby_update(&server);
 
-    jl_millisleep(1000 / 15); // fps
+    jl_millisleep(1000 / 15); // release cpu pressure
   }
 
-  wby_stop(&server);
-  free(memory);
-
-  libportal_close(&portal);
-
-  free(_main_current_image_data);
-
-  return 0;
-
-  l_main_error: {
-    // jl_err(MAIN_LOG_PREFIX "crashed with error code %d", main_error_code);
+  l_main_end: {
     const char *msg = NULL;
-    switch (main_error_code) {
+    switch (main_libportal_error_code) {
       default:
-        jl_err(MAIN_LOG_PREFIX "crashed with unknown error code %d", main_error_code);
+        jl_err(MAIN_LOG_PREFIX "crashed with unknown error code %d", main_libportal_error_code);
         break;
+      case LP_OK: break;
       case LPE_INVALID_PLATFORM: msg = "invalid platform"; break;
       case LPE_MALLOC_FAILURE: msg = "malloc() failure"; break;
       case LPE_MMAP_FAILURE: msg = "mmap() failure"; break;
@@ -312,8 +305,18 @@ int main(int argc, const char **argv) {
     }
     if (msg) jl_err(MAIN_LOG_PREFIX "%s", msg);
 
+    /* end */
+
+    if (image_data) free(image_data);
+
+    wby_stop(&server);
+    if (memory) free(memory);
+
     libportal_close(&portal);
-    return 1;
+
+    if (main_libportal_error_code) main_code = main_libportal_error_code;
+
+    return main_code;
   }
 }
 

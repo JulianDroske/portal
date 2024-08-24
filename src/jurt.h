@@ -25,11 +25,13 @@
 #ifndef _JURT_H_
 #define _JURT_H_
 
+#define _GNU_SOURCE 1
+
 #include "stdint.h"
 #include "stdarg.h"
 #include "stdlib.h"
 #include "string.h"
-#include "sys/time.h"
+#include "time.h"
 #include "stdio.h"
 
 #ifdef _WIN32
@@ -392,7 +394,7 @@ void jl_nanosleep(int64_t nanoseconds){
 		if(!(timer = CreateWaitableTimer(NULL, TRUE, NULL)))
 			return;
 		/* Set timer properties */
-		li.QuadPart = -ns;
+		li.QuadPart = -nanoseconds;
 		if(!SetWaitableTimer(timer, &li, 0, NULL, NULL, FALSE)){
 			CloseHandle(timer);
 			return;
