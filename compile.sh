@@ -17,9 +17,11 @@ SCRIPT_ROOT="$(cd $(dirname $0); echo $PWD)"
 SRC_DIR="${SCRIPT_ROOT}/src"
 TOOL_DIR="${SCRIPT_ROOT}/tool"
 
-test -z "${CC}" && CC=cc
+test -z "${HOSTCC}" && HOSTCC=cc
+test -z "${CC}" && CC="${HOSTCC}"
+test -z "${OUT}" && OUT=portalweb
 
-CFLAGS="--std=c99 -O3 ${CFLAGS}"
+CFLAGS="--std=c99 -O2 ${CFLAGS}"
 LDFLAGS="${LDFLAGS}"
 
 if test -z "${OS}"; then
@@ -40,6 +42,9 @@ fi
 filepath(){
   test "${CYGWIN}" = y && echo "$(cygpath -m ${1})" || echo "${1}"
 }
+# exepath(){
+#   test "${OS}" = windows && test "${1##*.}" = "exe" && filepath "${1}" || filepath "${1}.exe"
+# }
 
 add_cflags(){
   CFLAGS="${CFLAGS} ${*}"
@@ -65,7 +70,7 @@ else
   panic "unknown os detected: ${OS}"
 fi
 
-${CC} -o bin2c "$(filepath ${TOOL_DIR}/bin2c.c)" || panic "cannot compile bin2c"
+${HOSTCC} -o bin2c "$(filepath ${TOOL_DIR}/bin2c.c)" || panic "cannot compile bin2c"
 
 "$(filepath ./bin2c)" -o res_indexhtml.h -n indexhtml "$(filepath ${SRC_DIR}/index.html)" ||
   panic "cannot generate resource from index.html"
@@ -73,5 +78,5 @@ ${CC} -o bin2c "$(filepath ${TOOL_DIR}/bin2c.c)" || panic "cannot compile bin2c"
 echo "CFLAGS: ${CFLAGS}"
 echo "LDFLAGS: ${LDFLAGS}"
 
-${CC} -o portalweb -I. ${CFLAGS} "$(filepath ${SRC_DIR}/main.c)" ${LDFLAGS} || panic "compilation failed"
+${CC} -o "${OUT}" -I. ${CFLAGS} "$(filepath ${SRC_DIR}/main.c)" ${LDFLAGS} || panic "compilation failed"
 

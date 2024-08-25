@@ -3,8 +3,9 @@
 setlocal
 
 if "%CC%" == "" set CC=cc
-set _CFLAGS=%CFLAGS% -O2 -DLIBPORTAL_PLATFORM_HAS_GDI
+set _CFLAGS=%CFLAGS% --std=c99 -O2 -DLIBPORTAL_PLATFORM_HAS_GDI
 set _LDFLAGS=%LDFLAGS% -lws2_32 -lgdi32
+if "%OUT%" == "" set OUT=portalweb.exe
 
 set SCRIPT_ROOT=%~dp0
 set SRC_DIR=%SCRIPT_ROOT%\src
@@ -17,5 +18,5 @@ bin2c -o res_indexhtml.h -n indexhtml "%SRC_DIR%\index.html" || echo "cannot gen
 echo "CFLAGS: %_CFLAGS%"
 echo "LDFLAGS: %_LDFLAGS%"
 
-%CC% -o portalweb.exe -I. %_CFLAGS% "%SRC_DIR%\main.c" %_LDFLAGS% || echo "compilation failed" && exit /b 1
+%CC% -o "%OUT%" -I. %_CFLAGS% "%SRC_DIR%\main.c" %_LDFLAGS% || echo "compilation failed" && exit /b 1
 
