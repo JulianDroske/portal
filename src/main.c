@@ -247,7 +247,7 @@ int main(int argc, const char **argv) {
   /* main process */
 
   // TODO check result image out of range
-  image_data = malloc(1024 * 1024 * 1024 /* 1MB */);
+  image_data = malloc(1 * 1024 * 1024 /* 1MB */);
   if (!image_data) {
     main_code = 1;
     jl_err("failed to alloc data for storing result image");
