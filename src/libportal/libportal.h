@@ -23,11 +23,105 @@
 */
 
 /*
+
+######################################################
+##   ____________________________________________   ##
+##  | x | o | - | LIBPORTAL                      |  ##
+##  |--------------------------------------------|  ##
+##  |                                            |  ##
+##  |  LIB                                       |  ##
+##  |                                            |  ##
+##  |  ######                              ##    |  ##
+##  |  ##    ##               ##           ##    |  ##
+##  |  ######    ###    ###  ####   ####   ##    |  ##
+##  |  ##      ##   ##  ##    ##   ## ##   ##    |  ##
+##  |   ##        ###    ##    ###   #####  ###  |  ##
+##  |                                            |  ##
+##   --------------------------------------------   ##
+##__________________________________________________##
+######################################################
+
+*/
+
+/*
+  libportal - multi-platform screen capturing api
+
+
+  CONFIGURE
+
+    // define any macros below **before implementation** to make platform be supported at runtime
+    #define LIBPORTAL_PLATFORM_HAS_X11
+    #define LIBPORTAL_PLATFORM_HAS_FBDEV
+    #define LIBPORTAL_PLATFORM_HAS_GDI
+
+
+  INCLUDING
+
+    // define macro below before including to do the implementation
+    #define LIBPORTAL_IMPL
+    // then this file must be included only once globally
+
+
+  EXAMPLE
+
+    // the program below is an example of taking a screenshot under Linux X11
+    // with stb image writer (github repo nothings/stb)
+
+    #define LIBPORTAL_PLATFORM_HAS_X11
+
+    #include "stdio.h"
+
+    #define STB_IMAGE_WRITE_IMPLEMENTATION
+    #include "stb_image_write.h"
+
+    #define LIBPORTAL_IMPL
+    #include "libportal.h"
+
+    int main(void) {
+      libportal_t portal = {};
+
+      // configure libportal to use x11 for capturing screen
+      libportal_platform_options_t options = {
+        .x11 = {
+          .display_name = ":0"
+        }
+      };
+
+      // init
+      int status = libportal_init(&portal, LIBPORTAL_PLATFORM_ID_X11, &options);
+      if (status) {
+        printf("error when initializing libportal: %d\n", status);
+        return 1;
+      }
+
+      libportal_image_t *image = libportal_fetchimage(portal);
+
+      // ...do whatever you want with the image here
+      // image.w -> image width
+      // image.h -> image height
+      // image.data -> pixels, in RGBA format ([0] = R, [3] = A)
+      // image.bpl -> bytes per pixel, should be image.w * 4
+      // demonstrate how to save image using stbi
+      stbi_write_jpg("example_output.jpg", image.w, image.h, 4, image.data, 100);
+
+      libportal_destroyimage(image);
+
+      libportal_close(&portal);
+
+      printf("image captured, written into example_output.jpg");
+
+      return 0;
+    }
+
+*/
+
+/*
   Knowledgements about screen capturing
   Windows GDI
     https://stackoverflow.com/questions/3291167
     https://stackoverflow.com/questions/24720451
     https://stackoverflow.com/questions/35762636
+    https://stackoverflow.com/questions/4631292
     https://learn.microsoft.com/en-us/windows/win32/gdi/capturing-an-image
   Linux X11
     https://stackoverflow.com/questions/13479975
@@ -94,7 +188,8 @@ typedef struct {
 const libportal_platform_pair_t libportal_available_platform_pairs[];
 #define LIBPORTAL_AVAILABLE_PLATFORMS_FOREACH(name) for(const libportal_platform_pair_t *name = libportal_available_platform_pairs; name->id; ++name)
 
-libportal_error_t libportal_init(libportal_t *portal, libportal_platform_id_t platform_id, libportal_platform_options_t opts);
+
+libportal_error_t libportal_init(libportal_t *portal, libportal_platform_id_t platform_id, libportal_platform_options_t *_opts);
 void libportal_close(libportal_t *portal);
 
 libportal_image_t libportal_fetchimage(libportal_t *portal);
@@ -166,9 +261,12 @@ const libportal_platform_pair_t libportal_available_platform_pairs[] = {
 };
 
 
-libportal_error_t libportal_init(libportal_t *portal, libportal_platform_id_t platform_id, libportal_platform_options_t opts) {
+libportal_error_t libportal_init(libportal_t *portal, libportal_platform_id_t platform_id, libportal_platform_options_t *_opts) {
 
   portal->platform_id = platform_id;
+
+  libportal_platform_options_t opts = {};
+  if (_opts) opts = *_opts;
 
   switch (platform_id) {
 
@@ -390,16 +488,22 @@ libportal_image_t libportal_fetchimage(libportal_t *portal) {
       HDC screen_hdc = gdi->screen_hdc;
       HDC memory_hdc = gdi->memory_hdc;
 
-      int width = GetDeviceCaps(screen_hdc, HORZRES);
-      int height = GetDeviceCaps(screen_hdc, VERTRES);
+      int width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+      int height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+      // int width = GetDeviceCaps(screen_hdc, HORZRES);
+      // int height = GetDeviceCaps(screen_hdc, VERTRES);
+
+      // TODO enum screen and get real dimensions
+      // printf("%d, %d\n", width, height);
+
       HBITMAP bitmap = CreateCompatibleBitmap(screen_hdc, width, height);
       HBITMAP old_bitmap = SelectObject(memory_hdc, bitmap);
-      BitBlt(memory_hdc, 0, 0, width, height, screen_hdc, 0, 0, SRCCOPY | CAPTUREBLT);
-      bitmap = SelectObject(memory_hdc, old_bitmap);
+      BitBlt(memory_hdc, 0, 0, width, height, screen_hdc, 0, 0, SRCCOPY /* | CAPTUREBLT */);
+      // bitmap = SelectObject(memory_hdc, old_bitmap);
 
       BITMAPINFOHEADER bmp_info_header = { sizeof(BITMAPINFOHEADER) };
       bmp_info_header.biWidth = width;
-      bmp_info_header.biHeight = height;
+      bmp_info_header.biHeight = -height;
       bmp_info_header.biPlanes = 1;
       bmp_info_header.biBitCount = 32;
 
@@ -412,18 +516,15 @@ libportal_image_t libportal_fetchimage(libportal_t *portal) {
             image.w = width;
             image.h = height;
 
-            for (int row = 0; row < height; ++row) {
-              for (int col = 0; col < width; ++col) {
-                int dsti = ((height - row - 1) * width + col) * 4;
-                int srci = (row * width + col) * 4;
-                libportal_byte_t *dst = data + dsti;
-                libportal_byte_t *src = image_bits + srci;
-                dst[0] = src[2];
-                dst[1] = src[1];
-                dst[2] = src[0];
-                dst[3] = src[3];
-              }
+            for (int i = 0, n = image_len; i < n; i += 4) {
+              libportal_byte_t *dst = data + i;
+              libportal_byte_t *src = image_bits + i;
+              dst[0] = src[2];
+              dst[1] = src[1];
+              dst[2] = src[0];
+              dst[3] = src[3];
             }
+
             image.data = data;
           }
         }

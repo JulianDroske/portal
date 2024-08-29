@@ -19,9 +19,9 @@ TOOL_DIR="${SCRIPT_ROOT}/tool"
 
 test -z "${HOSTCC}" && HOSTCC=cc
 test -z "${CC}" && CC="${HOSTCC}"
-test -z "${OUT}" && OUT=portalweb
+test -z "${OUT}" && OUT=portal
 
-CFLAGS="--std=c99 -O2 ${CFLAGS}"
+CFLAGS="-O0 ${CFLAGS}"
 LDFLAGS="${LDFLAGS}"
 
 if test -z "${OS}"; then
@@ -59,7 +59,7 @@ if test "${OS}" = linux ; then
   test -z "${PLATFORM_FBDEV}" && PLATFORM_FBDEV=on
 
   has_flag PLATFORM_X11 &&
-    { add_cflags "-DLIBPORTAL_PLATFORM_HAS_X11"; add_ldflags "-lX11"; }
+    { add_cflags "-DLIBPORTAL_PLATFORM_HAS_X11"; add_ldflags "-lX11 -lXext"; }
   has_flag PLATFORM_FBDEV && add_cflags "-DLIBPORTAL_PLATFORM_HAS_FBDEV"
 elif test "${OS}" = windows ; then
   test -z "${PLATFORM_GDI}" && PLATFORM_GDI=on
@@ -69,6 +69,10 @@ elif test "${OS}" = windows ; then
 else
   panic "unknown os detected: ${OS}"
 fi
+
+has_flag ENABLE_GUI && add_cflags "-DPORTAL_ENABLE_GUI"
+
+# compile!
 
 ${HOSTCC} -o bin2c "$(filepath ${TOOL_DIR}/bin2c.c)" || panic "cannot compile bin2c"
 

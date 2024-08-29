@@ -1,7 +1,7 @@
 /*
 	MIT License
 
-	Copyright (c) 2023 JulianDroid
+	Copyright (c) 2023~2024 Julian Droske
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -25,7 +25,9 @@
 #ifndef _JURT_H_
 #define _JURT_H_
 
-#define _GNU_SOURCE 1
+#ifndef _GNU_SOURCE
+# define _GNU_SOURCE
+#endif
 
 #include "stdint.h"
 #include "stdarg.h"
@@ -35,12 +37,12 @@
 #include "stdio.h"
 
 #ifdef _WIN32
-	#define JLOS_WINDOWS
+	#define JL_OS_WINDOWS
 #else
-	#define JLOS_LINUX
+	#define JL_OS_LINUX
 #endif
 
-#ifdef JLOS_WINDOWS
+#ifdef JL_OS_WINDOWS
 	#include "windows.h"
 #else
 	#include "pthread.h"
@@ -50,7 +52,7 @@
 
 /* ================ Precompile Helper ================ */
 
-#ifdef JLOS_WINDOWS
+#ifdef JL_OS_WINDOWS
 	#define JL_IMPORTF_PREV(chunkName,suff) binary_##chunkName##suff
 #else
 	#define JL_IMPORTF_PREV(chunkName,suff) _binary_##chunkName##suff
@@ -84,7 +86,7 @@ int64_t jl_getnanotimestamp(void);
 /*
 	sleep in milliseconds
 	Usage:
-		jl_microsleep(milliseconds)
+		jl_millisleep(milliseconds)
 */
 void jl_millisleep(int64_t);
 
@@ -99,15 +101,92 @@ int64_t jl_getmillitimestamp(void);
 
 
 
+/* ================ ANSI Color Compat ================ */
 
-/* ================ JuRt Logger Format ================ */
+/* ref: https://talyian.github.io/ansicolors/ */
+
+#ifdef JL_OS_WINDOWS
+
+/* ref: https://stackoverflow.com/questions/8621578 */
+
+typedef enum {
+	JL_FGCOLOR_IGNORE = 0,
+
+	JL_FGCOLOR_BLACK = 0,
+	JL_FGCOLOR_RED = 4,
+	JL_FGCOLOR_GREEN = 2,
+	JL_FGCOLOR_YELLOW = 14,
+	JL_FGCOLOR_BLUE = 1,
+	JL_FGCOLOR_MAGENTA = 5,
+	JL_FGCOLOR_CYAN = 3,
+	JL_FGCOLOR_WHITE = 15,
+} jl_fgcolor_t;
+
+typedef enum {
+	JL_BGCOLOR_IGNORE = 0,
+
+	JL_BGCOLOR_BLACK = 0,
+	JL_BGCOLOR_RED = 192,
+	JL_BGCOLOR_GREEN = 32,
+	JL_BGCOLOR_YELLOW = 224,
+	JL_BGCOLOR_BLUE = 144,
+	JL_BGCOLOR_MAROON = 64,
+	JL_BGCOLOR_MAGENTA = 208,
+	JL_BGCOLOR_CYAN = 176,
+	JL_BGCOLOR_WHITE = 240,
+} jl_bgcolor_t;
+
+#else
+
+/* ref: https://azrael.digipen.edu/~mmead/www/mg/ansicolors/index.html */
+
+typedef enum {
+	JL_FGCOLOR_IGNORE = 0,
+
+	JL_FGCOLOR_BLACK = 30,
+	JL_FGCOLOR_RED = 31,
+	JL_FGCOLOR_GREEN = 32,
+	JL_FGCOLOR_YELLOW = 93,
+	JL_FGCOLOR_BLUE = 34,
+	JL_FGCOLOR_MAGENTA = 35,
+	JL_FGCOLOR_CYAN = 96, // 36?
+	JL_FGCOLOR_WHITE = 0,
+} jl_fgcolor_t;
+
+typedef enum {
+	JL_BGCOLOR_IGNORE = 0,
+
+	JL_BGCOLOR_BLACK = 40,
+	JL_BGCOLOR_RED = 41,
+	JL_BGCOLOR_GREEN = 42,
+	JL_BGCOLOR_YELLOW = 103,
+	JL_BGCOLOR_BLUE = 44,
+	JL_BGCOLOR_MAGENTA = 105,
+	JL_BGCOLOR_CYAN = 46,
+	JL_BGCOLOR_WHITE = 0,
+} jl_bgcolor_t;
+
+#endif
 
 /*
-	Static strings
+	Sets console foreground and background color
+	Usage:
+		jl_consolecolor_set(foreground_color, background_color)
 */
-#define INF_STARTSTR "\x1b[33;40m"
-#define ERR_STARTSTR "\x1b[30;43m"
-#define INFERR_ENDSTR "\x1b[0;0m\n"
+void jl_consolecolor_set(jl_fgcolor_t, jl_bgcolor_t);
+
+/*
+	Restore conosle's color attributes
+	Usage:
+		jl_consolecolor_restore()
+*/
+void jl_consolecolor_restore();
+
+/* [================ ANSI Color Compat ================] */
+
+
+
+/* ================ JuRt Logger Format ================ */
 
 /*
 	Show log
@@ -126,42 +205,43 @@ void jl_err(const char*, ...);
 /* [================ JuRt Logger Format ================] */
 
 
+
 /* ================ Assert ================ */
 /* to check if returned value is valid */
 
 /*
 	callback function type to deal with error
 	Args:
-		vl: vl@jl_assert?
+		value: value@jl_assert?
 */
-typedef void (*JL_ERRFUNC)(int64_t);
+typedef void (*jl_errorfunction_t)(int64_t);
 
 /*
 	check if bigger than 0
 	Usage:
-		assertp(vl, errmsg, callbackFunc, terminate)
+		assertp(value, errmsg, callback_function, auto_terminate_process)
 	Returns:
-		vl@assertp
+		value@assertp if check passed
 */
-int64_t jl_assertp(int64_t, char*, JL_ERRFUNC, int);
+int64_t jl_assertp(int64_t, char*, jl_errorfunction_t, int);
 
 /*
 	check if equals 0
 	Usage:
-		assert0(vl, errmsg, callbackFunc, terminate)
+		assert0(value, errmsg, callback_function, auto_terminate_process)
 	Returns:
-		vl@assert0
+		value@assert0 if check passed
 */
-int64_t jl_assert0(int64_t, char*, JL_ERRFUNC, int);
+int64_t jl_assert0(int64_t, char*, jl_errorfunction_t, int);
 
 /*
 	check if bigger or equals 0
 	Usage:
-		assert0p(vl, errmsg, callbackFunc, terminate)
+		assert0p(value, errmsg, callback_function, auto_terminate_process)
 	Returns:
-		vl@assert0
+		value@assert0 if check passed
 */
-int64_t jl_assert0p(int64_t, char*, JL_ERRFUNC, int);
+int64_t jl_assert0p(int64_t, char*, jl_errorfunction_t, int);
 
 /* [================ Assert ================] */
 
@@ -170,7 +250,7 @@ int64_t jl_assert0p(int64_t, char*, JL_ERRFUNC, int);
 /* ================ Dynamic Array Helper Library (Stack Only) ================ */
 
 /* chunk size of array, also minimum size of a array  */
-#define JLDA_CHUNK_SIZE 16
+#define JL_DYNAMICARRAY_CHUNK_SIZE 16
 
 /* dynamic array structure, used to manage an array */
 typedef struct {
@@ -179,98 +259,99 @@ typedef struct {
 	size_t item_size;
 	size_t chunk_size;
 	size_t alloc_size;
-} jlda_t;
+} jl_dynamicarray_t;
 
-typedef jlda_t* jlda_ptr;
+typedef jl_dynamicarray_t* jl_dynamicarray_ptr;
 
 /*
 	check if a dynamic array is invalid (creation failure)Setup your OpenGL-contex
 	Usage:
-		jlda_is_invalid(da)
+		jl_dynamicarray_is_invalid(da)
 	Returns:
 		1 if invalid, otherwise 0
 */
-int jlda_is_invalid(jlda_ptr);
+int jl_dynamicarray_is_invalid(jl_dynamicarray_ptr);
 
 /*
 	create a dynamic array
 	Usage:
-		jlda_create(size_per_item)
+		jl_dynamicarray_create(size_per_item)
 	Returns:
-		jlda_ptr, jlda_ptr->array=NULL if error
+		jl_dynamicarray_ptr
+		jl_dynamicarray_ptr->array = NULL if error
 */
-jlda_ptr jlda_create(int);
+jl_dynamicarray_ptr jl_dynamicarray_create(int);
 
 /*
 	get the length of a dynamic array
 	Usage:
-		jlda_length(da)
+		jl_dynamicarray_length(da)
 	Returns:
 		the length of the da
 */
-size_t jlda_length(jlda_ptr);
+size_t jl_dynamicarray_length(jl_dynamicarray_ptr);
 
 /*
 	get the raw data of a dynamic array
 	Usage:
-		jlda_rawdata(da)
+		jl_dynamicarray_rawdata(da)
 	Returns:
 		the pointer to the start of the array
 */
-void* jlda_rawdata(jlda_ptr);
+void* jl_dynamicarray_rawdata(jl_dynamicarray_ptr);
 
 /*
 	get an item from a dynamic array
 	Usage:
-		jlda_get(da, index)
+		jl_dynamicarray_get(da, index)
 	Returns:
 		address of item, NULL if an error occured, no need to free()
 */
-void* jlda_get(jlda_ptr, int);
+void* jl_dynamicarray_get(jl_dynamicarray_ptr, int);
 
 /*
 	get an int from DynamicArray
 	TODO: returns another value instead of -1
 	Usage:
-		jlda_get_int(da, index)
+		jl_dynamicarray_get_int(da, index)
 	Returns:
 		value of item and -1 if an error occured
 */
-int jlda_getint(jlda_ptr, int);
+int jl_dynamicarray_getint(jl_dynamicarray_ptr, int);
 
 /*
 	push a duplicated value at the end of the array
 	Usage:
-		jlda_push(da, data)
+		jl_dynamicarray_push(da, data)
 */
-void jlda_push(jlda_ptr, void*);
+void jl_dynamicarray_push(jl_dynamicarray_ptr, void*);
 
 /*
 	++++++++ need to be freed ++++++++
 	pop from an array
 	Usage:
-		jlda_pop(da)
+		jl_dynamicarray_pop(da)
 	Returns:
 		value of the last item, or NULL if none left
 */
-void* jlda_pop(jlda_ptr);
+void* jl_dynamicarray_pop(jl_dynamicarray_ptr);
 
 /*
 	pop an integer from an array
 	TODO: returns another value instead of -1
 	Usage:
-		jlda_pop_int(da)
+		jl_dynamicarray_pop_int(da)
 	Returns:
 		value of the last item and -1 if an error occured
 */
-int jlda_popint(jlda_ptr);
+int jl_dynamicarray_popint(jl_dynamicarray_ptr);
 
 /*
 	free the entire array
 	Usage:
 		DA_free(da)
 */
-void jlda_free(jlda_ptr);
+void jl_dynamicarray_free(jl_dynamicarray_ptr);
 
 /* [================ Dynamic Array Helper Library ================] */
 
@@ -286,7 +367,7 @@ typedef void* (*JL_THREAD_INNER_FUNC)(void*);
 #define JL_THREAD_MAX_COUNT 256
 
 /* thread lock type */
-#ifdef JLOS_WINDOWS
+#ifdef JL_OS_WINDOWS
 # define JL_MUTEX_T HANDLE
 #else
 # define JL_MUTEX_T pthread_mutex_t
@@ -299,7 +380,7 @@ typedef void* (*JL_THREAD_INNER_FUNC)(void*);
 	Returns:
 		typed *; otherwise 0(NULL)
 */
-#ifdef JLOS_WINDOWS
+#ifdef JL_OS_WINDOWS
 	HANDLE* jl_getthreadbyid(int);
 #else
 	pthread_t* jl_getthreadbyid(int);
@@ -382,11 +463,14 @@ LUA_API int luaopen_jurt(lua_State *L);
 
 
 #ifdef JURT_IMPLEMENTATION
+#ifndef _JURT_IMPL_
+#define _JURT_IMPL_
 
 /* ================ Universal Utils ================ */
+
 void jl_nanosleep(int64_t nanoseconds){
 	if(nanoseconds<0) return;
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		/* Declarations */
 		HANDLE timer;	/* Timer handle */
 		LARGE_INTEGER li;	/* Time defintion */
@@ -434,35 +518,80 @@ int64_t jl_getmillitimestamp(void){
 
 
 
+/* ================ ANSI Color Compat ================ */
+
+void jl_consolecolor_set(jl_fgcolor_t fgcolor, jl_bgcolor_t bgcolor) {
+
+#ifdef JL_OS_WINDOWS
+	HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+	CONSOLE_SCREEN_BUFFER_INFO csbi = {};
+	GetConsoleScreenBufferInfo(h, &csbi);
+	WORD current_color_attrs = csbi.wAttributes;
+
+	int prev_fgcolor = current_color_attrs & 0x0f;
+	int prev_bgcolor = current_color_attrs & 0xf0;
+	current_color_attrs >>= 8;
+	current_color_attrs <<= 8;
+
+	if (fgcolor) prev_fgcolor = fgcolor;
+	if (bgcolor) prev_bgcolor = bgcolor;
+
+	SetConsoleTextAttribute(h, current_color_attrs | fgcolor | bgcolor);
+#else
+	if (fgcolor) printf("\x1b[%dm", fgcolor);
+	if (bgcolor) printf("\x1b[%dm", bgcolor);
+	fflush(stdout);
+#endif
+
+}
+
+void jl_consolecolor_restore() {
+#ifdef JL_OS_WINDOWS
+	HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+	SetConsoleTextAttribute(h, 0);
+#else
+	printf("\x1b[0;0m");
+	fflush(stdout);
+#endif
+}
+
+/* [================ ANSI Color Compat ================] */
+
+
+
 /* ================ JuRt Logger Format ================ */
 
+#define JL_INF_FGCOLOR JL_FGCOLOR_YELLOW
+#define JL_INF_BGCOLOR JL_BGCOLOR_BLACK
+
+#define JL_ERR_FGCOLOR JL_FGCOLOR_BLACK
+#define JL_ERR_BGCOLOR JL_BGCOLOR_YELLOW
+
 void jl_inf(const char* format, ...){
+	jl_consolecolor_set(JL_INF_FGCOLOR, JL_INF_BGCOLOR);
 	va_list va;
-	int len = strlen(format);
-	char* newStr = (char*) malloc((len+sizeof(INF_STARTSTR)+sizeof(INFERR_ENDSTR))*sizeof(char));
-	sprintf(newStr, INF_STARTSTR "%s" INFERR_ENDSTR, format);
 	va_start(va, format);
-	vprintf(newStr, va);
+	vprintf(format, va);
 	va_end(va);
-	free(newStr);
+	jl_consolecolor_restore();
+	puts("");
 }
 
 void jl_err(const char* format, ...){
+	jl_consolecolor_set(JL_ERR_FGCOLOR, JL_ERR_BGCOLOR);
 	va_list va;
-	int len = strlen(format);
-	char* newStr = (char*) malloc((len+sizeof(ERR_STARTSTR)+sizeof(INFERR_ENDSTR))*sizeof(char));
-	sprintf(newStr, ERR_STARTSTR "%s" INFERR_ENDSTR, format);
 	va_start(va, format);
-	vprintf(newStr, va);
+	vprintf(format, va);
 	va_end(va);
-	free(newStr);
+	jl_consolecolor_restore();
+	puts("");
 }
 
 
 
 /* ================ Assert ================ */
 
-int64_t jl_assertp(int64_t fd, char* msg, JL_ERRFUNC cb, int terminate){
+int64_t jl_assertp(int64_t fd, char* msg, jl_errorfunction_t cb, int terminate){
 	if(fd > 0) return fd;
 	jl_inf("assertp: %s", msg);
 	if(cb) cb(fd);
@@ -473,7 +602,7 @@ int64_t jl_assertp(int64_t fd, char* msg, JL_ERRFUNC cb, int terminate){
 	return fd;
 }
 
-int64_t jl_assert0(int64_t fd, char* msg, JL_ERRFUNC cb, int terminate){
+int64_t jl_assert0(int64_t fd, char* msg, jl_errorfunction_t cb, int terminate){
 	if(fd == 0) return fd;
 	jl_inf("assert0: %s", msg);
 	if(cb) cb(fd);
@@ -484,7 +613,7 @@ int64_t jl_assert0(int64_t fd, char* msg, JL_ERRFUNC cb, int terminate){
 	return fd;
 }
 
-int64_t jl_assert0p(int64_t fd, char* msg, JL_ERRFUNC cb, int terminate){
+int64_t jl_assert0p(int64_t fd, char* msg, jl_errorfunction_t cb, int terminate){
 	if(fd >= 0) return fd;
 	jl_inf("assert0: %s", msg);
 	if(cb) cb(fd);
@@ -499,43 +628,43 @@ int64_t jl_assert0p(int64_t fd, char* msg, JL_ERRFUNC cb, int terminate){
 
 /* ================ Dynamic Array Helper Library ================ */
 
-int jlda_is_invalid(jlda_ptr da){
+int jl_dynamicarray_is_invalid(jl_dynamicarray_ptr da){
 	return da->array == NULL;
 }
 
-jlda_ptr jlda_create(int size_per_item){
-	int act_chunksiz = size_per_item * JLDA_CHUNK_SIZE;
+jl_dynamicarray_ptr jl_dynamicarray_create(int size_per_item){
+	int act_chunksiz = size_per_item * JL_DYNAMICARRAY_CHUNK_SIZE;
 	void* array = malloc(act_chunksiz);
 	if(!array){
 		jl_err("cannot alloc mem for array.");
 		return NULL;
 	}
-	jlda_t da = {
+	jl_dynamicarray_t da = {
 		array,
 		0,
 		size_per_item,
 		act_chunksiz,
 		act_chunksiz
 	};
-	jlda_ptr daptr = malloc(sizeof(jlda_t));
+	jl_dynamicarray_ptr daptr = malloc(sizeof(jl_dynamicarray_t));
 	if(!daptr){
 		jl_err("cannot alloc mem for da instance");
 		free(array);
 		return NULL;
 	}
-	memcpy(daptr, &da, sizeof(jlda_t));
+	memcpy(daptr, &da, sizeof(jl_dynamicarray_t));
 	return daptr;
 }
 
-size_t jlda_length(jlda_ptr da){
+size_t jl_dynamicarray_length(jl_dynamicarray_ptr da){
 	return da->len;
 }
 
-void* jlda_rawdata(jlda_ptr da){
+void* jl_dynamicarray_rawdata(jl_dynamicarray_ptr da){
 	return da->array;
 }
 
-void* jlda_get(jlda_ptr da, int index){
+void* jl_dynamicarray_get(jl_dynamicarray_ptr da, int index){
 	if(!da->array){
 		jl_err("DA_get: array is null.");
 		return NULL;
@@ -551,8 +680,8 @@ void* jlda_get(jlda_ptr da, int index){
 	return da->array+index*da->item_size;
 }
 
-int jlda_getint(jlda_ptr da, int index){
-	void* data = jlda_get(da, index);
+int jl_dynamicarray_getint(jl_dynamicarray_ptr da, int index){
+	void* data = jl_dynamicarray_get(da, index);
 	if(!data){
 		jl_err("DA_get got an error.");
 		return -1;
@@ -563,7 +692,7 @@ int jlda_getint(jlda_ptr da, int index){
 }
 
 // TODO check bug
-void jlda_push(jlda_ptr da, void* item){
+void jl_dynamicarray_push(jl_dynamicarray_ptr da, void* item){
 	// jl_inf("push0, len=%d, chunk_size=%d, itemsiz=%d, alloc=%d", da->len, da->chunk_size, da->item_size, da->alloc_size);
 	if((da->len+1)*da->item_size > da->alloc_size){
 		// jl_inf("DA_push: %d, %d", da->alloc_size, da->chunk_size);
@@ -578,12 +707,12 @@ void jlda_push(jlda_ptr da, void* item){
 	++da->len;
 }
 
-void* jlda_pop(jlda_ptr da){
+void* jl_dynamicarray_pop(jl_dynamicarray_ptr da){
 	if(da->len == 0) return NULL;
 	void* data = malloc(da->item_size);
 	memcpy(data, da->array+(da->len-1)*da->item_size, da->item_size);
 	--da->len;
-	if(da->len%JLDA_CHUNK_SIZE == JLDA_CHUNK_SIZE-1){
+	if(da->len%JL_DYNAMICARRAY_CHUNK_SIZE == JL_DYNAMICARRAY_CHUNK_SIZE-1){
 		// free
 		void* new_arr = realloc(da->array, da->alloc_size -= da->chunk_size);
 		if(!new_arr){
@@ -593,8 +722,8 @@ void* jlda_pop(jlda_ptr da){
 	return data;
 }
 
-int jlda_popint(jlda_ptr da){
-	void* data = jlda_pop(da);
+int jl_dynamicarray_popint(jl_dynamicarray_ptr da){
+	void* data = jl_dynamicarray_pop(da);
 	if(!data){
 		jl_err("DA_pop got an error.");
 		return -1;
@@ -605,7 +734,7 @@ int jlda_popint(jlda_ptr da){
 	return integer;
 }
 
-void jlda_free(jlda_ptr da){
+void jl_dynamicarray_free(jl_dynamicarray_ptr da){
 	if(!da) return;
 	if(da->array){
 		free(da->array);
@@ -623,7 +752,7 @@ void jlda_free(jlda_ptr da){
 	to store thread ids
 	[0] stores nothing
 */
-#ifdef JLOS_WINDOWS
+#ifdef JL_OS_WINDOWS
 	HANDLE jl_i_thread_ids[JL_THREAD_MAX_COUNT];
 #else
 	pthread_t jl_i_thread_ids[JL_THREAD_MAX_COUNT];
@@ -662,13 +791,13 @@ typedef struct {
 	Usage:
 		_JL_THREAD_WRAPPER(inner_func, args);
 */
-#ifdef JLOS_WINDOWS
+#ifdef JL_OS_WINDOWS
 	DWORD WINAPI _JL_THREAD_WRAPPER(LPVOID);
 #else
 	void* _JL_THREAD_WRAPPER(void*);
 #endif
 
-#ifdef JLOS_WINDOWS
+#ifdef JL_OS_WINDOWS
 	HANDLE* jl_getthreadbyid(int id){
 #else
 	pthread_t* jl_getthreadbyid(int id){
@@ -678,7 +807,7 @@ typedef struct {
 }
 
 int jl_thread_cleanup(int id){
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		jl_err("impl");
 	#else
 		pthread_t* thp = NULL;
@@ -704,7 +833,7 @@ int jl_thread_cleanup(int id){
 	return 0;
 }
 
-#ifdef JLOS_WINDOWS
+#ifdef JL_OS_WINDOWS
 DWORD WINAPI _JL_THREAD_WRAPPER(LPVOID args){
 #else
 void* _JL_THREAD_WRAPPER(void* args){
@@ -726,7 +855,7 @@ int jl_createthread(JL_THREAD_INNER_FUNC func, void* args, int nodetach){
 		return 0;
 	}
 
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		HANDLE thread;
 	#else
 		pthread_t thread;
@@ -752,7 +881,7 @@ int jl_createthread(JL_THREAD_INNER_FUNC func, void* args, int nodetach){
 	arg->id = id;
 
 
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		thread = CreateThread(NULL, 0, _JL_THREAD_WRAPPER, arg, 0, 0);
 	#else
 		pthread_attr_t attr;
@@ -775,7 +904,7 @@ int jl_createthread(JL_THREAD_INNER_FUNC func, void* args, int nodetach){
 
 void* jl_waitthread(int id){
 	void* res = NULL;
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		HANDLE* threadp = jl_getthreadbyid(id);
 		HANDLE thread;
 	#else
@@ -789,7 +918,7 @@ void* jl_waitthread(int id){
 	}
 	thread = *threadp;
 
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		jl_inf("waitThread: Win32 does not support getting return value from threads");
 		DWORD stat = WaitForSingleObject(thread, INFINITE);
 		if(stat != WAIT_OBJECT_0){
@@ -806,7 +935,7 @@ void* jl_waitthread(int id){
 
 JL_MUTEX_T jl_mutex_create(){
 	JL_MUTEX_T mutex;
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		mutex = CreateMutex(NULL, 0, NULL);
 	#else
 		pthread_mutex_init(&mutex, NULL);
@@ -815,7 +944,7 @@ JL_MUTEX_T jl_mutex_create(){
 }
 
 void jl_mutex_lock(JL_MUTEX_T* mutex){
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		WaitForSingleObject(*mutex, INFINITE);
 	#else
 		pthread_mutex_lock(mutex);
@@ -823,7 +952,7 @@ void jl_mutex_lock(JL_MUTEX_T* mutex){
 }
 
 void jl_mutex_unlock(JL_MUTEX_T* mutex){
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		ReleaseMutex(*mutex);
 	#else
 		pthread_mutex_unlock(mutex);
@@ -831,7 +960,7 @@ void jl_mutex_unlock(JL_MUTEX_T* mutex){
 }
 
 void jl_mutex_destroy(JL_MUTEX_T* mutex){
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		CloseHandle(*mutex);
 	#else
 		pthread_mutex_destroy(mutex);
@@ -839,7 +968,7 @@ void jl_mutex_destroy(JL_MUTEX_T* mutex){
 }
 
 int jl_killthread(int id){
-	#ifdef JLOS_WINDOWS
+	#ifdef JL_OS_WINDOWS
 		jl_err("impl");
 		return -1;
 	#else
@@ -906,4 +1035,6 @@ LUA_API int luaopen_jurt(lua_State* L){
 
 /* [================ Lua Bindings ================] */
 
+#endif // _JURT_IMPL_
 #endif // JURT_IMPLEMENTATION
+
