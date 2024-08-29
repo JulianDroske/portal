@@ -86,6 +86,12 @@ _main_command_t _main_commands[] = {
   { NULL, NULL }
 };
 
+int _main_is_valid_ipv4(const char *ipaddr) {
+  struct sockaddr_in sa = {};
+  int ret = inet_pton(AF_INET, ipaddr, &sa.sin_addr);
+  return ret != 0;
+}
+
 
 int _main_websever_dispatch(struct wby_con *connection, void *userdata) {
   const char *req_path = connection->request.uri;
@@ -406,8 +412,19 @@ int main(int argc, const char **argv) {
 
 #ifdef PORTAL_ENABLE_GUI
 
+void _main_nk_input_hint(struct nk_context *ctx, int valid) {
+  const struct nk_color color = valid? nk_white: nk_red;
+
+  struct nk_window *win = ctx->current;
+  struct nk_rect rect = {};
+  nk_flags state = nk_widget(&rect, ctx);
+  nk_fill_rect(&win->buffer, rect, 0, color);
+}
+
+
 SHLNKPROJECT_DEFINE_FUNC(main, shlnk_ctx, ctx) {
 
+  static int server_thread_id = 0;
   const int is_server_running = main_ctx.is_stillrunning;
 
   const char *string_mainbutton = is_server_running?
@@ -417,42 +434,91 @@ SHLNKPROJECT_DEFINE_FUNC(main, shlnk_ctx, ctx) {
     "Server is running":
     "Server is not running";
 
+  static const float layout_first_ratios[] = { 0.75f, 0.25f };
+
   float font_size = shlnk_font_get_size(shlnk_ctx);
   static char input_ipaddr_buffer[16] = {};
   static int input_ipaddr_len = 0;
   static char input_port_buffer[8] = {};
   static int input_port_len = 0;
 
+  static int checkpass_input_ipaddr = 1;
+  static int checkpass_input_port = 1;
+
+  /* alternate options with our own variables */
+  static int _gui_main_inited = 0;
+  if (!_gui_main_inited) {
+    _gui_main_inited = 1;
+    _main_options_t *main_options = &main_ctx.options;
+
+    if (!main_options->webserver_address) main_options->webserver_address = "0.0.0.0";
+    if (!main_options->webserver_port) main_options->webserver_port = 8888;
+
+    strncpy(input_ipaddr_buffer, main_options->webserver_address, 15);
+    input_ipaddr_len = strlen(input_ipaddr_buffer);
+    input_port_len = snprintf(input_port_buffer, 6, "%d\n", main_options->webserver_port);
+  }
+
   const int edit_flags = is_server_running? NK_EDIT_READ_ONLY: NK_EDIT_FIELD;
 
   shlnk_font_set_size(shlnk_ctx, font_size * 4 / 5);
 
-  nk_layout_row(ctx, NK_DYNAMIC, 0, 2, (float[]) { 0.75f, 0.25f });
-  nk_label(ctx, "Address (defaults: 0.0.0.0)", NK_TEXT_ALIGN_LEFT | NK_TEXT_ALIGN_BOTTOM);
-  nk_label(ctx, "Port (defaults: 8888)", NK_TEXT_ALIGN_LEFT | NK_TEXT_ALIGN_BOTTOM);
+
+  nk_layout_row(ctx, NK_DYNAMIC, 0, 2, layout_first_ratios);
+  nk_label(ctx, "Address (default: 0.0.0.0)", NK_TEXT_ALIGN_LEFT | NK_TEXT_ALIGN_BOTTOM);
+  nk_label(ctx, "Port (default: 8888)", NK_TEXT_ALIGN_LEFT | NK_TEXT_ALIGN_BOTTOM);
+
   shlnk_font_set_size(shlnk_ctx, font_size);
-  nk_edit_string(ctx, edit_flags, input_ipaddr_buffer, &input_ipaddr_len, 16, NULL);
-  nk_edit_string(ctx, edit_flags, input_port_buffer, &input_port_len, 8, NULL);
+  int ev_input_ipaddr = nk_edit_string(ctx, edit_flags, input_ipaddr_buffer, &input_ipaddr_len, 16, NULL);
+  int ev_input_port = nk_edit_string(ctx, edit_flags, input_port_buffer, &input_port_len, 8, nk_filter_decimal);
+
+
+  nk_layout_row(ctx, NK_DYNAMIC, 2, 2, layout_first_ratios);
+  if (ev_input_ipaddr & NK_EDIT_ACTIVATED || ev_input_ipaddr & NK_EDIT_DEACTIVATED) {
+    checkpass_input_ipaddr = !input_ipaddr_len || _main_is_valid_ipv4(input_ipaddr_buffer);
+  }
+  _main_nk_input_hint(ctx, checkpass_input_ipaddr);
+  if (ev_input_port & NK_EDIT_ACTIVATED || ev_input_port & NK_EDIT_DEACTIVATED) {
+    checkpass_input_port = !input_port_len || input_port_len <= 5;
+  }
+  _main_nk_input_hint(ctx, checkpass_input_port);
+
 
   nk_layout_row_static(ctx, font_size, 0, 1);
   nk_spacer(ctx);
+
 
   nk_layout_row(ctx, NK_DYNAMIC, 0, 2, (float[]) { 0.1f, 0.8f, 0.1f });
   nk_spacer(ctx);
-  int ev_server_toggle = nk_button_label(ctx, string_mainbutton);
+  int ev_do_startstopserver = nk_button_label(ctx, string_mainbutton);
   nk_spacer(ctx);
+
 
   nk_layout_row_static(ctx, font_size, 0, 1);
   nk_spacer(ctx);
+
 
   nk_layout_row_dynamic(ctx, 0, 1);
   nk_label(ctx, string_serverstatus, NK_TEXT_CENTERED);
 
-  if (ev_server_toggle) {
+
+  if (ev_do_startstopserver) {
     if (is_server_running) {
+      /* kill server */
+
       main_ctx.is_stillrunning = 0;
-    } else {
-      jl_createthread(main_serve_multithread, &main_ctx, 0);
+      if (server_thread_id) {
+        jl_waitthread(server_thread_id);
+        server_thread_id = 0;
+      }
+    } else if (checkpass_input_ipaddr && checkpass_input_port) {
+      /* start server */
+
+      _main_options_t *main_options = &main_ctx.options;
+      main_options->webserver_address = input_ipaddr_buffer;
+      main_options->webserver_port = (int) strtol(input_port_buffer, NULL, 10);
+
+      server_thread_id = jl_createthread(main_serve_multithread, &main_ctx, 1);
     }
   }
 }
